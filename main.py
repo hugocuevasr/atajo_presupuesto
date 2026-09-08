@@ -1,17 +1,31 @@
 import os
+import time
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 import requests
 
 app = FastAPI()
 
-# Tus credenciales
 NOTION_DB_ID = "3d4fe8890dc680698819fb3f7b62fa01"
-# Es recomendable pasar el token como variable de entorno por seguridad
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "TU_TOKEN_SECRET_AQUI")
+
+ultimo_gasto = {"tiempo": 0, "concepto": "", "importe": 0}
 
 @app.get("/api/gasto")
 def registrar_gasto(concepto: str, importe: float):
+    global ultimo_gasto
+    ahora = time.time()
+    
+    # ANTI-REBOTE: Si es el mismo gasto en menos de 10 segundos, lo interrumpimos
+    if (ahora - ultimo_gasto["tiempo"] < 10 and 
+        ultimo_gasto["concepto"] == concepto and 
+        ultimo_gasto["importe"] == importe):
+        return {"status": "ignorado", "mensaje": "Duplicado fantasma de iOS interceptado."}
+        
+    # Si es un gasto nuevo, actualizamos la memoria
+    ultimo_gasto = {"tiempo": ahora, "concepto": concepto, "importe": importe}
+    
+    # ---- A partir de aquí, el código de Notion normal ----
     url = "https://api.notion.com/v1/pages"
     
     headers = {
@@ -20,7 +34,6 @@ def registrar_gasto(concepto: str, importe: float):
         "Content-Type": "application/json"
     }
     
-    # Construimos el JSON nativo que Notion exige
     payload = {
         "parent": {"database_id": NOTION_DB_ID},
         "properties": {
@@ -36,7 +49,6 @@ def registrar_gasto(concepto: str, importe: float):
         }
     }
     
-    # Hacemos el POST desde el servidor, aislando a iOS del problema
     response = requests.post(url, json=payload, headers=headers)
     
     if response.status_code == 200:
